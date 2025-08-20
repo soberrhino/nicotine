@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Click Logger</title>
+    <!-- Utilisation de Tailwind CSS pour un style rapide et moderne -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Assure que l'application prend toute la hauteur de l'écran sur mobile */
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 flex items-center justify-center h-full">
+
+    <div class="text-center p-8">
+        <!-- Le bouton est maintenant l'élément central unique -->
+        <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-transform duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
+            <span id="buttonText" class="text-2xl font-semibold">Nicotine</span>
+        </button>
+
+        <!-- Le message de statut a été retiré pour une interface plus épurée -->
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        // Collez ici l'URL de votre application web Google Apps Script
+        const APPS_SCRIPT_URL = 'VOTRE_URL_APPS_SCRIPT_ICI'; 
+
+        // --- LOGIQUE DE L'APPLICATION ---
+        const logButton = document.getElementById('logButton');
+        const buttonText = document.getElementById('buttonText');
+
+        logButton.addEventListener('click', () => {
+            // Désactive le bouton et affiche un état de chargement
+            logButton.disabled = true;
+            buttonText.textContent = '...';
+
+            // Appelle l'URL du Google Apps Script
+            fetch(APPS_SCRIPT_URL)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        console.log('Succès:', data);
+                        // Animation de succès
+                        logButton.classList.remove('bg-blue-600');
+                        logButton.classList.add('bg-green-500');
+                    } else {
+                        throw new Error(data.message || 'Erreur inconnue');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    // Animation d'erreur
+                    logButton.classList.remove('bg-blue-600');
+                    logButton.classList.add('bg-red-500');
+                })
+                .finally(() => {
+                    // Réactive le bouton après un court délai pour l'animation
+                    setTimeout(() => {
+                        logButton.disabled = false;
+                        buttonText.textContent = 'Nicotine'; // Rétablit le texte initial
+                        logButton.classList.remove('bg-green-500', 'bg-red-500');
+                        logButton.classList.add('bg-blue-600');
+                    }, 1500);
+                });
+        });
+    </script>
+</body>
+</html>
