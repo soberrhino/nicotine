@@ -18,21 +18,25 @@
     <div class="text-center p-8 flex flex-col items-center w-full max-w-xs">
         
         <!-- Zone d'information -->
-        <div id="infoDisplay" class="mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
-            <div class="flex items-center justify-center text-lg mb-3">
-                <span id="statusEmoji" class="text-3xl mr-3 transition-transform duration-500">⚪</span>
-                <div class="text-left">
-                    <p class="font-semibold text-sm">Dernière prise :</p>
-                    <p id="lastClickText" class="info-text font-medium">Chargement...</p>
-                </div>
+        <div id="infoDisplay" class="text-center mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
+            <!-- Ligne 1: Dernière prise -->
+            <div>
+                <p class="font-semibold text-sm text-gray-600 dark:text-gray-400">
+                    <span id="statusEmoji" class="text-2xl align-middle mr-1">⚪</span>Dernière prise
+                </p>
+                <p id="lastClickText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
             </div>
-            <div class="border-t border-gray-300 dark:border-gray-600 my-2"></div>
-            <div class="flex items-center justify-center text-lg mt-3">
-                 <span class="text-3xl mr-3">⏱️</span>
-                 <div class="text-left">
-                    <p class="font-semibold text-sm">Moyenne du jour :</p>
-                    <p id="averageText" class="info-text font-medium">Chargement...</p>
-                </div>
+            <div class="border-t border-gray-300 dark:border-gray-600 my-3"></div>
+            <!-- Ligne 2: Moyenne -->
+            <div>
+                <p class="font-semibold text-sm text-gray-600 dark:text-gray-400">⏱️ Moyenne du jour</p>
+                <p id="averageText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
+            </div>
+            <div class="border-t border-gray-300 dark:border-gray-600 my-3"></div>
+            <!-- Ligne 3: Prochaine prise -->
+            <div>
+                <p class="font-semibold text-sm text-gray-600 dark:text-gray-400">🎯 Prochaine prise (est.)</p>
+                <p id="nextDoseText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
             </div>
         </div>
 
@@ -53,6 +57,7 @@
         const statusEmoji = document.getElementById('statusEmoji');
         const lastClickText = document.getElementById('lastClickText');
         const averageText = document.getElementById('averageText');
+        const nextDoseText = document.getElementById('nextDoseText');
 
         let updateInterval;
 
@@ -64,12 +69,19 @@
             if (!lastClick || !avgDuration) return;
 
             const lastClickDate = new Date(lastClick);
+            const avgDurationSeconds = parseInt(avgDuration);
+
+            // Mise à jour des textes
             lastClickText.textContent = lastClickDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            averageText.textContent = `${Math.round(parseInt(avgDuration) / 60)} minutes`;
+            averageText.textContent = `${Math.round(avgDurationSeconds / 60)} min`;
+            
+            // Calcul et affichage de la prochaine prise
+            const nextDoseDate = new Date(lastClickDate.getTime() + avgDurationSeconds * 1000);
+            nextDoseText.textContent = nextDoseDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+            // Mise à jour des couleurs et de l'emoji
             const elapsedSeconds = (Date.now() - lastClickDate.getTime()) / 1000;
-
-            if (elapsedSeconds > parseInt(avgDuration)) {
+            if (elapsedSeconds > avgDurationSeconds) {
                 // État VERT : L'intervalle est dépassé
                 infoDisplay.classList.remove('text-red-600', 'dark:text-red-400');
                 infoDisplay.classList.add('text-green-600', 'dark:text-green-400');
@@ -85,7 +97,6 @@
         // --- LOGIQUE DE COMMUNICATION ---
         function fetchData(isClick) {
             let url = APPS_SCRIPT_URL;
-            // Si ce n'est pas un clic, on demande juste les données sans en ajouter.
             if (!isClick) {
                 url += '?action=getData';
             }
@@ -107,6 +118,7 @@
                     } else if (!data.lastClickTimestamp) {
                         lastClickText.textContent = "Aucune aujourd'hui";
                         averageText.textContent = "-- min";
+                        nextDoseText.textContent = "--:--";
                     } else {
                         throw new Error(data.message || 'Réponse invalide du script');
                     }
@@ -115,6 +127,7 @@
                     console.error('Erreur:', error);
                     lastClickText.textContent = "Erreur";
                     averageText.textContent = "Erreur";
+                    nextDoseText.textContent = "Erreur";
                 })
                 .finally(() => {
                     setTimeout(() => {
@@ -126,12 +139,12 @@
 
         // --- INITIALISATION ---
         window.addEventListener('load', () => {
-            fetchData(false); // Récupère les données au chargement
+            fetchData(false);
         });
 
         // --- GESTION DU CLIC ---
         logButton.addEventListener('click', () => {
-            fetchData(true); // Enregistre un clic et récupère les nouvelles données
+            fetchData(true);
         });
     </script>
 </body>
