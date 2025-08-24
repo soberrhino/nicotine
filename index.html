@@ -4,15 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Click Logger</title>
-    <!-- Utilisation de Tailwind CSS pour un style rapide et moderne -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Assure que l'application prend toute la hauteur de l'écran sur mobile */
-        html, body {
-            height: 100%;
-            margin: 0;
-            font-family: 'Inter', sans-serif;
-        }
+        html, body { height: 100%; margin: 0; font-family: 'Inter', sans-serif; }
+        .info-text { font-variant-numeric: tabular-nums; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,57 +15,123 @@
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 flex items-center justify-center h-full">
 
-    <div class="text-center p-8">
-        <!-- Le bouton est maintenant l'élément central unique -->
-        <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-transform duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
+    <div class="text-center p-8 flex flex-col items-center w-full max-w-xs">
+        
+        <!-- Zone d'information -->
+        <div id="infoDisplay" class="mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
+            <div class="flex items-center justify-center text-lg mb-3">
+                <span id="statusEmoji" class="text-3xl mr-3 transition-transform duration-500">⚪</span>
+                <div class="text-left">
+                    <p class="font-semibold text-sm">Dernière prise :</p>
+                    <p id="lastClickText" class="info-text font-medium">Chargement...</p>
+                </div>
+            </div>
+            <div class="border-t border-gray-300 dark:border-gray-600 my-2"></div>
+            <div class="flex items-center justify-center text-lg mt-3">
+                 <span class="text-3xl mr-3">⏱️</span>
+                 <div class="text-left">
+                    <p class="font-semibold text-sm">Moyenne du jour :</p>
+                    <p id="averageText" class="info-text font-medium">Chargement...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bouton d'action -->
+        <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-all duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
             <span id="buttonText" class="text-2xl font-semibold">Nicotine</span>
         </button>
-
-        <!-- Le message de statut a été retiré pour une interface plus épurée -->
     </div>
 
     <script>
         // --- CONFIGURATION ---
-        // Collez ici l'URL de votre application web Google Apps Script
         const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzAQ8mn3ReJDgt-Kq0tPDbTEXWwHWD_NN5vxfzI48h7HTUSrZOgSl3RHNrZMrCMH44/exec'; 
 
-        // --- LOGIQUE DE L'APPLICATION ---
+        // --- ÉLÉMENTS DU DOM ---
         const logButton = document.getElementById('logButton');
         const buttonText = document.getElementById('buttonText');
+        const infoDisplay = document.getElementById('infoDisplay');
+        const statusEmoji = document.getElementById('statusEmoji');
+        const lastClickText = document.getElementById('lastClickText');
+        const averageText = document.getElementById('averageText');
 
-        logButton.addEventListener('click', () => {
-            // Désactive le bouton et affiche un état de chargement
-            logButton.disabled = true;
+        let updateInterval;
+
+        // --- FONCTIONS D'AFFICHAGE ---
+        function updateDisplayStatus() {
+            const lastClick = localStorage.getItem('lastClickTimestamp');
+            const avgDuration = localStorage.getItem('averageDuration');
+
+            if (!lastClick || !avgDuration) return;
+
+            const lastClickDate = new Date(lastClick);
+            lastClickText.textContent = lastClickDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            averageText.textContent = `${Math.round(parseInt(avgDuration) / 60)} minutes`;
+
+            const elapsedSeconds = (Date.now() - lastClickDate.getTime()) / 1000;
+
+            if (elapsedSeconds > parseInt(avgDuration)) {
+                // État VERT : L'intervalle est dépassé
+                infoDisplay.classList.remove('text-red-600', 'dark:text-red-400');
+                infoDisplay.classList.add('text-green-600', 'dark:text-green-400');
+                statusEmoji.textContent = '✅';
+            } else {
+                // État ROUGE : En attente
+                infoDisplay.classList.remove('text-green-600', 'dark:text-green-400');
+                infoDisplay.classList.add('text-red-600', 'dark:text-red-400');
+                statusEmoji.textContent = '⏳';
+            }
+        }
+
+        // --- LOGIQUE DE COMMUNICATION ---
+        function fetchData(isClick) {
+            let url = APPS_SCRIPT_URL;
+            // Si ce n'est pas un clic, on demande juste les données sans en ajouter.
+            if (!isClick) {
+                url += '?action=getData';
+            }
+            
             buttonText.textContent = '...';
+            logButton.disabled = true;
 
-            // Appelle l'URL du Google Apps Script
-            fetch(APPS_SCRIPT_URL)
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        console.log('Succès:', data);
-                        // Animation de succès
-                        logButton.classList.remove('bg-blue-600');
-                        logButton.classList.add('bg-green-500');
+                    if (data.status === 'success' && data.lastClickTimestamp) {
+                        localStorage.setItem('lastClickTimestamp', data.lastClickTimestamp);
+                        localStorage.setItem('averageDuration', data.averageDuration.toString());
+                        
+                        updateDisplayStatus();
+                        clearInterval(updateInterval);
+                        updateInterval = setInterval(updateDisplayStatus, 1000);
+
+                    } else if (!data.lastClickTimestamp) {
+                        lastClickText.textContent = "Aucune aujourd'hui";
+                        averageText.textContent = "-- min";
                     } else {
-                        throw new Error(data.message || 'Erreur inconnue');
+                        throw new Error(data.message || 'Réponse invalide du script');
                     }
                 })
                 .catch(error => {
                     console.error('Erreur:', error);
-                    // Animation d'erreur
-                    logButton.classList.remove('bg-blue-600');
-                    logButton.classList.add('bg-red-500');
+                    lastClickText.textContent = "Erreur";
+                    averageText.textContent = "Erreur";
                 })
                 .finally(() => {
-                    // Réactive le bouton après un court délai pour l'animation
                     setTimeout(() => {
                         logButton.disabled = false;
-                        buttonText.textContent = 'Nicotine'; // Rétablit le texte initial
-                        logButton.classList.remove('bg-green-500', 'bg-red-500');
-                        logButton.classList.add('bg-blue-600');
-                    }, 1500);
+                        buttonText.textContent = 'Nicotine';
+                    }, 500);
                 });
+        }
+
+        // --- INITIALISATION ---
+        window.addEventListener('load', () => {
+            fetchData(false); // Récupère les données au chargement
+        });
+
+        // --- GESTION DU CLIC ---
+        logButton.addEventListener('click', () => {
+            fetchData(true); // Enregistre un clic et récupère les nouvelles données
         });
     </script>
 </body>
