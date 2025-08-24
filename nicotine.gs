@@ -1,47 +1,61 @@
 /**
  * @OnlyCurrentDoc
- * Cette fonction est exécutée lorsqu'une requête GET est envoyée à l'URL de l'application web.
+ * Enregistre un timestamp et/ou renvoie les statistiques du jour.
  */
 function doGet(e) {
   try {
-    // Ouvre la feuille de calcul active et sélectionne la première feuille.
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
     
-    // --- NOUVELLE LOGIQUE ---
-    // Récupère toutes les valeurs de la colonne A.
-    const columnAValues = sheet.getRange("A1:A").getValues();
-    // Compte le nombre de cellules non vides pour trouver la prochaine ligne libre.
-    // C'est la méthode la plus fiable pour ignorer les colonnes avec des formules.
-    const nextRow = columnAValues.filter(String).length + 1;
-    
-    // Crée un nouvel objet Date pour obtenir l'heure et la date actuelles.
-    const timestamp = new Date();
-    
-    // Insère le timestamp dans la colonne A de la prochaine ligne vide.
-    sheet.getRange(nextRow, 1).setValue(timestamp);
-    
-    // Prépare une réponse JSON pour indiquer que l'opération a réussi.
+    // Si l'appel n'est pas une simple demande de données, on enregistre un nouveau clic.
+    if (e.parameter.action !== 'getData') {
+        const columnAValues = sheet.getRange("A1:A").getValues();
+        const nextRow = columnAValues.filter(String).length + 1;
+        sheet.getRange(nextRow, 1).setValue(new Date());
+    }
+
+    // --- Calcul des statistiques (fait à chaque appel) ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Met l'heure à minuit pour la comparaison
+
+    // Récupère toutes les valeurs de la colonne A et les filtre
+    const allTimestamps = sheet.getRange("A1:A").getValues().flat().filter(Boolean);
+    const todayTimestamps = allTimestamps.filter(ts => new Date(ts) >= today);
+
+    let averageDurationInSeconds = 3600; // Valeur par défaut de 1 heure
+    let lastClickTimestamp = null;
+
+    // Trouve le dernier clic du jour
+    if (todayTimestamps.length > 0) {
+        lastClickTimestamp = new Date(todayTimestamps[todayTimestamps.length - 1]).toISOString();
+    }
+
+    // Calcule la moyenne des intervalles s'il y a eu au moins 2 clics aujourd'hui
+    if (todayTimestamps.length > 1) {
+      const intervals = [];
+      for (let i = 1; i < todayTimestamps.length; i++) {
+        const previous = new Date(todayTimestamps[i-1]);
+        const current = new Date(todayTimestamps[i]);
+        const diffInSeconds = (current.getTime() - previous.getTime()) / 1000;
+        intervals.push(diffInSeconds);
+      }
+      const totalIntervals = intervals.reduce((sum, value) => sum + value, 0);
+      averageDurationInSeconds = Math.round(totalIntervals / intervals.length);
+    }
+
+    // --- Réponse ---
     const response = {
       status: "success",
-      message: "Timestamp ajouté avec succès à la ligne " + nextRow,
-      timestamp: timestamp.toISOString()
+      lastClickTimestamp: lastClickTimestamp,
+      averageDuration: averageDurationInSeconds
     };
     
-    // Renvoie la réponse au format JSON.
     return ContentService
       .createTextOutput(JSON.stringify(response))
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
-    // En cas d'erreur, prépare une réponse d'erreur.
-    const errorResponse = {
-      status: "error",
-      message: error.message
-    };
-    
-    // Renvoie la réponse d'erreur au format JSON.
     return ContentService
-      .createTextOutput(JSON.stringify(errorResponse))
+      .createTextOutput(JSON.stringify({ status: "error", message: error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
