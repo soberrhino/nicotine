@@ -4,15 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Click Logger</title>
-    <!-- Utilisation de Tailwind CSS pour un style rapide et moderne -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Assure que l'application prend toute la hauteur de l'écran sur mobile */
-        html, body {
-            height: 100%;
-            margin: 0;
-            font-family: 'Inter', sans-serif;
-        }
+        html, body { height: 100%; margin: 0; font-family: 'Inter', sans-serif; }
+        .timer-display { font-variant-numeric: tabular-nums; }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,35 +15,87 @@
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 flex items-center justify-center h-full">
 
-    <div class="text-center p-8">
-        <!-- Le bouton est maintenant l'élément central unique -->
-        <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-transform duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
+    <div class="text-center p-8 flex flex-col items-center">
+        <!-- Afficheur du minuteur -->
+        <div id="timer" class="mb-8 timer-display text-5xl md:text-7xl font-bold text-gray-400 dark:text-gray-600">
+            <span id="timerSign"></span>
+            <span id="timerValue">--:--:--</span>
+        </div>
+
+        <!-- Bouton d'action -->
+        <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-all duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
             <span id="buttonText" class="text-2xl font-semibold">Nicotine</span>
         </button>
-
-        <!-- Le message de statut a été retiré pour une interface plus épurée -->
     </div>
 
     <script>
         // --- CONFIGURATION ---
-        // Collez ici l'URL de votre application web Google Apps Script
         const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzAQ8mn3ReJDgt-Kq0tPDbTEXWwHWD_NN5vxfzI48h7HTUSrZOgSl3RHNrZMrCMH44/exec'; 
 
-        // --- LOGIQUE DE L'APPLICATION ---
+        // --- ÉLÉMENTS DU DOM ---
         const logButton = document.getElementById('logButton');
         const buttonText = document.getElementById('buttonText');
+        const timerEl = document.getElementById('timer');
+        const timerSignEl = document.getElementById('timerSign');
+        const timerValueEl = document.getElementById('timerValue');
+
+        let timerInterval;
+
+        // --- FONCTIONS DU MINUTEUR ---
+
+        function formatTime(totalSeconds) {
+            const absSeconds = Math.abs(totalSeconds);
+            const h = Math.floor(absSeconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((absSeconds % 3600) / 60).toString().padStart(2, '0');
+            const s = Math.floor(absSeconds % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function updateTimerDisplay() {
+            const lastClickTimestamp = localStorage.getItem('lastClickTimestamp');
+            const countdownDuration = localStorage.getItem('countdownDuration');
+
+            if (!lastClickTimestamp || !countdownDuration) return;
+
+            const elapsedSeconds = Math.floor((Date.now() - parseInt(lastClickTimestamp)) / 1000);
+            const remainingSeconds = parseInt(countdownDuration) - elapsedSeconds;
+
+            if (remainingSeconds > 0) {
+                // Phase de décompte
+                timerEl.classList.remove('text-green-500', 'dark:text-green-400', 'text-gray-400', 'dark:text-gray-600');
+                timerEl.classList.add('text-red-500', 'dark:text-red-400');
+                timerSignEl.textContent = '-';
+                timerValueEl.textContent = formatTime(remainingSeconds);
+            } else {
+                // Phase de comptage
+                timerEl.classList.remove('text-red-500', 'dark:text-red-400', 'text-gray-400', 'dark:text-gray-600');
+                timerEl.classList.add('text-green-500', 'dark:text-green-400');
+                timerSignEl.textContent = '+';
+                timerValueEl.textContent = formatTime(remainingSeconds);
+            }
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            updateTimerDisplay();
+            timerInterval = setInterval(updateTimerDisplay, 1000);
+        }
+
+        // --- GESTION DU CLIC ---
 
         logButton.addEventListener('click', () => {
-            // Désactive le bouton et affiche un état de chargement
             logButton.disabled = true;
             buttonText.textContent = '...';
 
-            // Appelle l'URL du Google Apps Script
             fetch(APPS_SCRIPT_URL)
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
                         console.log('Succès:', data);
+                        localStorage.setItem('lastClickTimestamp', Date.now());
+                        localStorage.setItem('countdownDuration', data.averageDuration);
+                        startTimer();
+                        
                         // Animation de succès
                         logButton.classList.remove('bg-blue-600');
                         logButton.classList.add('bg-green-500');
@@ -58,19 +105,25 @@
                 })
                 .catch(error => {
                     console.error('Erreur:', error);
-                    // Animation d'erreur
                     logButton.classList.remove('bg-blue-600');
                     logButton.classList.add('bg-red-500');
                 })
                 .finally(() => {
-                    // Réactive le bouton après un court délai pour l'animation
                     setTimeout(() => {
                         logButton.disabled = false;
-                        buttonText.textContent = 'Nicotine'; // Rétablit le texte initial
+                        buttonText.textContent = 'Nicotine';
                         logButton.classList.remove('bg-green-500', 'bg-red-500');
                         logButton.classList.add('bg-blue-600');
-                    }, 1500);
+                    }, 1000);
                 });
+        });
+
+        // --- INITIALISATION ---
+        // Au chargement de la page, on lance le minuteur s'il y a des données sauvegardées
+        window.addEventListener('load', () => {
+            if (localStorage.getItem('lastClickTimestamp')) {
+                startTimer();
+            }
         });
     </script>
 </body>
