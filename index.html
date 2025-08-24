@@ -28,9 +28,14 @@
         </button>
     </div>
 
+    <!-- Zone d'affichage pour le débogage -->
+    <div id="debugLog" class="fixed bottom-0 left-0 w-full bg-gray-800 text-white p-3 text-xs font-mono break-words">
+        En attente d'une action...
+    </div>
+
     <script>
         // --- CONFIGURATION ---
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzAQ8mn3ReJDgt-Kq0tPDbTEXWwHWD_NN5vxfzI48h7HTUSrZOgSl3RHNrZMrCMH44/exec'; 
+        const APPS_SCRIPT_URL = 'VOTRE_URL_APPS_SCRIPT_ICI'; 
 
         // --- ÉLÉMENTS DU DOM ---
         const logButton = document.getElementById('logButton');
@@ -38,11 +43,16 @@
         const timerEl = document.getElementById('timer');
         const timerSignEl = document.getElementById('timerSign');
         const timerValueEl = document.getElementById('timerValue');
+        const debugLogEl = document.getElementById('debugLog'); // Ajout de l'élément de log
 
         let timerInterval;
 
-        // --- FONCTIONS DU MINUTEUR ---
+        // --- FONCTION DE DÉBOGAGE ---
+        function logToScreen(message) {
+            debugLogEl.textContent = message;
+        }
 
+        // --- FONCTIONS DU MINUTEUR ---
         function formatTime(totalSeconds) {
             const absSeconds = Math.abs(totalSeconds);
             const h = Math.floor(absSeconds / 3600).toString().padStart(2, '0');
@@ -54,20 +64,15 @@
         function updateTimerDisplay() {
             const lastClickTimestamp = localStorage.getItem('lastClickTimestamp');
             const countdownDuration = localStorage.getItem('countdownDuration');
-
             if (!lastClickTimestamp || !countdownDuration) return;
-
             const elapsedSeconds = Math.floor((Date.now() - parseInt(lastClickTimestamp)) / 1000);
             const remainingSeconds = parseInt(countdownDuration) - elapsedSeconds;
-
             if (remainingSeconds > 0) {
-                // Phase de décompte
                 timerEl.classList.remove('text-green-500', 'dark:text-green-400', 'text-gray-400', 'dark:text-gray-600');
                 timerEl.classList.add('text-red-500', 'dark:text-red-400');
                 timerSignEl.textContent = '-';
                 timerValueEl.textContent = formatTime(remainingSeconds);
             } else {
-                // Phase de comptage
                 timerEl.classList.remove('text-red-500', 'dark:text-red-400', 'text-gray-400', 'dark:text-gray-600');
                 timerEl.classList.add('text-green-500', 'dark:text-green-400');
                 timerSignEl.textContent = '+';
@@ -82,29 +87,33 @@
         }
 
         // --- GESTION DU CLIC ---
-
         logButton.addEventListener('click', () => {
             logButton.disabled = true;
             buttonText.textContent = '...';
+            logToScreen('Appel du script en cours...');
 
             fetch(APPS_SCRIPT_URL)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        // Gère les erreurs HTTP qui ne sont pas capturées par .catch (ex: 404, 500)
+                        throw new Error(`Erreur HTTP! Statut: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    if (data.status === 'success') {
-                        console.log('Succès:', data);
+                    logToScreen('Succès: ' + JSON.stringify(data)); // Affiche la réponse complète
+                    if (data.status === 'success' && data.averageDuration !== undefined) {
                         localStorage.setItem('lastClickTimestamp', Date.now());
                         localStorage.setItem('countdownDuration', data.averageDuration);
                         startTimer();
-                        
-                        // Animation de succès
                         logButton.classList.remove('bg-blue-600');
                         logButton.classList.add('bg-green-500');
                     } else {
-                        throw new Error(data.message || 'Erreur inconnue');
+                        throw new Error("La réponse du script est invalide ou manque 'averageDuration'.");
                     }
                 })
                 .catch(error => {
-                    console.error('Erreur:', error);
+                    logToScreen('Erreur: ' + error.toString()); // Affiche l'erreur à l'écran
                     logButton.classList.remove('bg-blue-600');
                     logButton.classList.add('bg-red-500');
                 })
@@ -119,7 +128,6 @@
         });
 
         // --- INITIALISATION ---
-        // Au chargement de la page, on lance le minuteur s'il y a des données sauvegardées
         window.addEventListener('load', () => {
             if (localStorage.getItem('lastClickTimestamp')) {
                 startTimer();
