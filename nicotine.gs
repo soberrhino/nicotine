@@ -1,6 +1,7 @@
 /**
  * @OnlyCurrentDoc
  * Enregistre un timestamp et/ou renvoie les statistiques du jour.
+ * La moyenne du jour est initialisée avec la moyenne de la veille.
  */
 function doGet(e) {
   try {
@@ -15,28 +16,49 @@ function doGet(e) {
 
     // --- Calcul des statistiques (fait à chaque appel) ---
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Met l'heure à minuit pour la comparaison
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
 
-    // Récupère toutes les valeurs de la colonne A et les filtre
     const allTimestamps = sheet.getRange("A1:A").getValues().flat().filter(Boolean);
-    const todayTimestamps = allTimestamps.filter(ts => new Date(ts) >= today);
 
-    let averageDurationInSeconds = 3600; // Valeur par défaut de 1 heure
-    let lastClickTimestamp = null;
+    // 1. Calculer la moyenne de la veille pour l'utiliser comme valeur par défaut
+    let defaultAverage = 3600; // Valeur par défaut de 1 heure si la veille est vide
+    const yesterdayTimestamps = allTimestamps.filter(ts => {
+        const d = new Date(ts);
+        return d >= yesterday && d < today;
+    });
 
-    // Trouve le dernier clic du jour
-    if (todayTimestamps.length > 0) {
-        lastClickTimestamp = new Date(todayTimestamps[todayTimestamps.length - 1]).toISOString();
+    if (yesterdayTimestamps.length > 1) {
+        const intervals = [];
+        for (let i = 1; i < yesterdayTimestamps.length; i++) {
+            const previous = new Date(yesterdayTimestamps[i-1]);
+            const current = new Date(yesterdayTimestamps[i]);
+            intervals.push((current.getTime() - previous.getTime()) / 1000);
+        }
+        const totalIntervals = intervals.reduce((sum, value) => sum + value, 0);
+        defaultAverage = Math.round(totalIntervals / intervals.length);
     }
 
-    // Calcule la moyenne des intervalles s'il y a eu au moins 2 clics aujourd'hui
-    if (todayTimestamps.length > 1) {
+    // 2. Calculer les statistiques du jour
+    const todayTimestamps = allTimestamps.filter(ts => new Date(ts) >= today);
+    
+    let averageDurationInSeconds = defaultAverage; // Initialise avec la moyenne de la veille
+    let lastClickTimestamp = null;
+    let dailyCount = todayTimestamps.length;
+
+    if (dailyCount > 0) {
+        lastClickTimestamp = new Date(todayTimestamps[dailyCount - 1]).toISOString();
+    }
+
+    // Calcule et écrase la moyenne si on a assez de données pour aujourd'hui
+    if (dailyCount > 1) {
       const intervals = [];
       for (let i = 1; i < todayTimestamps.length; i++) {
         const previous = new Date(todayTimestamps[i-1]);
         const current = new Date(todayTimestamps[i]);
-        const diffInSeconds = (current.getTime() - previous.getTime()) / 1000;
-        intervals.push(diffInSeconds);
+        intervals.push((current.getTime() - previous.getTime()) / 1000);
       }
       const totalIntervals = intervals.reduce((sum, value) => sum + value, 0);
       averageDurationInSeconds = Math.round(totalIntervals / intervals.length);
@@ -45,6 +67,7 @@ function doGet(e) {
     // --- Réponse ---
     const response = {
       status: "success",
+      dailyCount: dailyCount,
       lastClickTimestamp: lastClickTimestamp,
       averageDuration: averageDurationInSeconds
     };
