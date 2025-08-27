@@ -22,7 +22,7 @@
             <!-- Ligne 0: Nombre de prises -->
             <div>
                 <p class="font-semibold text-sm text-gray-600 dark:text-gray-400"><span class="text-2xl align-middle mr-1">🔢</span> Nombre de prises</p>
-                <p id="dailyCountText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
+                <p id="dailyCountText" class="info-text font-bold text-2xl mt-1">--</p>
             </div>
             <div class="border-t border-gray-300 dark:border-gray-600 my-3"></div>
             <!-- Ligne 1: Dernière prise -->
@@ -30,19 +30,19 @@
                 <p class="font-semibold text-sm text-gray-600 dark:text-gray-400">
                     <span id="statusEmoji" class="text-2xl align-middle mr-1">⚪</span>Dernière prise
                 </p>
-                <p id="lastClickText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
+                <p id="lastClickText" class="info-text font-bold text-2xl mt-1">--:--</p>
             </div>
             <div class="border-t border-gray-300 dark:border-gray-600 my-3"></div>
             <!-- Ligne 2: Moyenne -->
             <div>
                 <p class="font-semibold text-sm text-gray-600 dark:text-gray-400"><span class="text-2xl align-middle mr-1">⏱️</span> Moyenne du jour</p>
-                <p id="averageText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
+                <p id="averageText" class="info-text font-bold text-2xl mt-1">-- min</p>
             </div>
             <div class="border-t border-gray-300 dark:border-gray-600 my-3"></div>
             <!-- Ligne 3: Prochaine prise -->
             <div>
                 <p class="font-semibold text-sm text-gray-600 dark:text-gray-400"><span class="text-2xl align-middle mr-1">🎯</span> Prochaine prise (est.)</p>
-                <p id="nextDoseText" class="info-text font-bold text-2xl mt-1">Chargement...</p>
+                <p id="nextDoseText" class="info-text font-bold text-2xl mt-1">--:--</p>
             </div>
         </div>
 
@@ -107,8 +107,10 @@
                 url += '?action=getData';
             }
             
-            buttonText.textContent = '...';
-            logButton.disabled = true;
+            if (isClick) {
+                buttonText.textContent = '...';
+                logButton.disabled = true;
+            }
 
             fetch(url)
                 .then(response => response.json())
@@ -118,7 +120,7 @@
                         localStorage.setItem('lastClickTimestamp', data.lastClickTimestamp);
                         localStorage.setItem('averageDuration', data.averageDuration.toString());
                         
-                        updateDisplayStatus();
+                        updateDisplayStatus(); // Rafraîchit l'affichage avec les nouvelles données
                         clearInterval(updateInterval);
                         updateInterval = setInterval(updateDisplayStatus, 1000);
 
@@ -127,27 +129,27 @@
                         lastClickText.textContent = "Aucune aujourd'hui";
                         averageText.textContent = "-- min";
                         nextDoseText.textContent = "--:--";
-                    } else {
-                        throw new Error(data.message || 'Réponse invalide du script');
                     }
                 })
-                .catch(error => {
-                    console.error('Erreur:', error);
-                    dailyCountText.textContent = "Erreur";
-                    lastClickText.textContent = "Erreur";
-                    averageText.textContent = "Erreur";
-                    nextDoseText.textContent = "Erreur";
-                })
+                .catch(error => console.error('Erreur:', error))
                 .finally(() => {
-                    setTimeout(() => {
-                        logButton.disabled = false;
-                        buttonText.textContent = 'Nicotine';
-                    }, 500);
+                    if (isClick) {
+                        setTimeout(() => {
+                            logButton.disabled = false;
+                            buttonText.textContent = 'Nicotine';
+                        }, 500);
+                    }
                 });
         }
 
         // --- INITIALISATION ---
         window.addEventListener('load', () => {
+            // 1. Affiche immédiatement les données locales
+            updateDisplayStatus();
+            clearInterval(updateInterval);
+            updateInterval = setInterval(updateDisplayStatus, 1000);
+            
+            // 2. Va chercher les données fraîches en arrière-plan
             fetchData(false);
         });
 
