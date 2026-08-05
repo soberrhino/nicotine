@@ -64,6 +64,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, doc, setDoc, increment, onSnapshot, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION FIREBASE ---
@@ -81,9 +82,11 @@
 
         // Initialisation de Firebase
         const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
         const db = getFirestore(app);
         
         // 💡 L'ASTUCE : On utilise un ID fixe (en dur) pour synchroniser tous vos appareils sans mot de passe
+        // On n'utilise PAS auth.currentUser.uid ici, sinon le téléphone et le PC auraient des dossiers séparés.
         const userId = "mon_profil_personnel"; 
 
         const logButton = document.getElementById('logButton');
@@ -202,13 +205,27 @@
             });
         }
 
-        // Démarrage immédiat de l'écoute des données au chargement de la page
-        window.addEventListener('load', () => {
-             listenToTodayData();
+        // Démarrage de l'écoute après la connexion silencieuse (anonyme)
+        window.addEventListener('load', async () => {
+            try {
+                // Connecte cet appareil de façon transparente pour avoir les droits Firebase
+                await signInAnonymously(auth);
+                
+                // Une fois authentifié, on lit le dossier PARTAGÉ (userId = "mon_profil_personnel")
+                if (auth.currentUser) {
+                    listenToTodayData();
+                }
+            } catch (error) {
+                console.error("Erreur de connexion :", error);
+                showError("Impossible de se connecter au serveur.");
+            }
         });
 
         // Action principale : enregistrer une prise
         logButton.addEventListener('click', async () => {
+            // Sécurité : on vérifie que l'appareil est bien connecté à Firebase
+            if (!auth.currentUser) return showError("En attente de connexion...");
+
             logButton.disabled = true;
             buttonText.textContent = '...';
             
