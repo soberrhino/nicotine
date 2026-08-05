@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nicotine</title>
+    <title>Nicotine Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         html, body { height: 100%; margin: 0; font-family: 'Inter', sans-serif; }
@@ -52,9 +52,35 @@
         </button>
     </div>
 
-    <script>
-        // --- CONFIGURATION ---
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzAQ8mn3ReJDgt-Kq0tPDbTEXWwHWD_NN5vxfzI48h7HTUSrZOgSl3RHNrZMrCMH44/exec'; 
+    <!-- Utilisation de modules ES pour Firebase -->
+    <script type="module">
+        // 1. Importation des modules Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            query, 
+            where, 
+            onSnapshot, 
+            serverTimestamp, 
+            orderBy 
+        } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+
+        // --- CONFIGURATION FIREBASE ---
+        // TODO: Remplacez cet objet par la configuration de votre projet Firebase
+        const firebaseConfig = {
+            apiKey: "VOTRE_API_KEY",
+            authDomain: "votre-projet.firebaseapp.com",
+            projectId: "votre-projet",
+            storageBucket: "votre-projet.appspot.com",
+            messagingSenderId: "VOTRE_SENDER_ID",
+            appId: "VOTRE_APP_ID"
+        };
+
+        // Initialisation
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
         // --- ÉLÉMENTS DU DOM ---
         const logButton = document.getElementById('logButton');
@@ -66,96 +92,116 @@
         const averageText = document.getElementById('averageText');
         const nextDoseText = document.getElementById('nextDoseText');
 
+        // --- VARIABLES D'ÉTAT ---
+        let currentDailyCount = 0;
+        let currentLastClickDate = null;
+        let currentAvgDurationSeconds = 0;
         let updateInterval;
 
         // --- FONCTIONS D'AFFICHAGE ---
         function updateDisplayStatus() {
-            const dailyCount = localStorage.getItem('dailyCount');
-            const lastClick = localStorage.getItem('lastClickTimestamp');
-            const avgDuration = localStorage.getItem('averageDuration');
-
-            if (!lastClick || !avgDuration || !dailyCount) return;
-
-            const lastClickDate = new Date(lastClick);
-            const avgDurationSeconds = parseInt(avgDuration);
+            if (currentDailyCount === 0 || !currentLastClickDate) {
+                dailyCountText.textContent = '0';
+                lastClickText.textContent = "Aucune aujourd'hui";
+                averageText.textContent = "-- min";
+                nextDoseText.textContent = "--:--";
+                statusEmoji.textContent = '⚪';
+                infoDisplay.className = "text-center mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200";
+                return;
+            }
 
             // Mise à jour des textes
-            dailyCountText.textContent = dailyCount;
-            lastClickText.textContent = lastClickDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            averageText.textContent = `${Math.round(avgDurationSeconds / 60)} min`;
+            dailyCountText.textContent = currentDailyCount;
+            lastClickText.textContent = currentLastClickDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
             
-            const nextDoseDate = new Date(lastClickDate.getTime() + avgDurationSeconds * 1000);
-            nextDoseText.textContent = nextDoseDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-
-            // Mise à jour des couleurs et de l'emoji
-            const elapsedSeconds = (Date.now() - lastClickDate.getTime()) / 1000;
-            if (elapsedSeconds > avgDurationSeconds) {
-                infoDisplay.classList.remove('text-red-600', 'dark:text-red-400');
-                infoDisplay.classList.add('text-green-600', 'dark:text-green-400');
-                statusEmoji.textContent = '✅';
+            if (currentAvgDurationSeconds > 0) {
+                averageText.textContent = `${Math.round(currentAvgDurationSeconds / 60)} min`;
+                const nextDoseDate = new Date(currentLastClickDate.getTime() + currentAvgDurationSeconds * 1000);
+                nextDoseText.textContent = nextDoseDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                
+                // Mise à jour des couleurs et de l'emoji (Timer)
+                const elapsedSeconds = (Date.now() - currentLastClickDate.getTime()) / 1000;
+                if (elapsedSeconds > currentAvgDurationSeconds) {
+                    infoDisplay.className = "text-center mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300";
+                    statusEmoji.textContent = '✅';
+                } else {
+                    infoDisplay.className = "text-center mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300";
+                    statusEmoji.textContent = '⏳';
+                }
             } else {
-                infoDisplay.classList.remove('text-green-600', 'dark:text-green-400');
-                infoDisplay.classList.add('text-red-600', 'dark:text-red-400');
-                statusEmoji.textContent = '⏳';
+                averageText.textContent = "-- min";
+                nextDoseText.textContent = "--:--";
             }
         }
 
-        // --- LOGIQUE DE COMMUNICATION ---
-        function fetchData(isClick) {
-            let url = APPS_SCRIPT_URL;
-            if (!isClick) {
-                url += '?action=getData';
-            }
-            
-            if (isClick) {
-                buttonText.textContent = '...';
-                logButton.disabled = true;
-            }
+        // --- ÉCOUTE DES DONNÉES EN TEMPS RÉEL ---
+        function listenToTodayData() {
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
 
-            fetch(url)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && data.lastClickTimestamp) {
-                        localStorage.setItem('dailyCount', data.dailyCount.toString());
-                        localStorage.setItem('lastClickTimestamp', data.lastClickTimestamp);
-                        localStorage.setItem('averageDuration', data.averageDuration.toString());
-                        
-                        updateDisplayStatus(); // Rafraîchit l'affichage avec les nouvelles données
-                        clearInterval(updateInterval);
-                        updateInterval = setInterval(updateDisplayStatus, 1000);
+            // Requête : Récupérer tous les clics d'aujourd'hui, triés par heure
+            const q = query(
+                collection(db, "logs"), 
+                where("timestamp", ">=", startOfDay),
+                orderBy("timestamp", "asc")
+            );
 
-                    } else if (!data.lastClickTimestamp) {
-                        dailyCountText.textContent = data.dailyCount !== undefined ? data.dailyCount.toString() : '0';
-                        lastClickText.textContent = "Aucune aujourd'hui";
-                        averageText.textContent = "-- min";
-                        nextDoseText.textContent = "--:--";
+            // onSnapshot permet d'écouter les changements en temps réel
+            onSnapshot(q, (snapshot) => {
+                const logs = snapshot.docs
+                    .map(doc => doc.data().timestamp?.toDate())
+                    .filter(date => date != null); // Filtre les dates non résolues (pendant l'écriture locale)
+
+                currentDailyCount = logs.length;
+
+                if (currentDailyCount > 0) {
+                    currentLastClickDate = logs[logs.length - 1];
+                    const firstClickDate = logs[0];
+
+                    // Calcul de la moyenne
+                    if (currentDailyCount > 1) {
+                        const totalSeconds = (currentLastClickDate.getTime() - firstClickDate.getTime()) / 1000;
+                        currentAvgDurationSeconds = totalSeconds / (currentDailyCount - 1);
+                    } else {
+                        currentAvgDurationSeconds = 0;
                     }
-                })
-                .catch(error => console.error('Erreur:', error))
-                .finally(() => {
-                    if (isClick) {
-                        setTimeout(() => {
-                            logButton.disabled = false;
-                            buttonText.textContent = 'Nicotine';
-                        }, 500);
-                    }
-                });
+                } else {
+                    currentLastClickDate = null;
+                    currentAvgDurationSeconds = 0;
+                }
+
+                // Rafraîchissement de l'UI
+                updateDisplayStatus();
+                clearInterval(updateInterval);
+                updateInterval = setInterval(updateDisplayStatus, 1000);
+            });
         }
 
         // --- INITIALISATION ---
         window.addEventListener('load', () => {
-            // 1. Affiche immédiatement les données locales
-            updateDisplayStatus();
-            clearInterval(updateInterval);
-            updateInterval = setInterval(updateDisplayStatus, 1000);
-            
-            // 2. Va chercher les données fraîches en arrière-plan
-            fetchData(false);
+            listenToTodayData();
         });
 
         // --- GESTION DU CLIC ---
-        logButton.addEventListener('click', () => {
-            fetchData(true);
+        logButton.addEventListener('click', async () => {
+            logButton.disabled = true;
+            buttonText.textContent = '...';
+            
+            try {
+                // Ajout du document dans la collection "logs"
+                await addDoc(collection(db, "logs"), {
+                    timestamp: serverTimestamp() // Utilise l'heure du serveur Firebase
+                });
+            } catch (error) {
+                console.error("Erreur lors de l'enregistrement :", error);
+                alert("Erreur lors de l'enregistrement de la prise.");
+            } finally {
+                // Remet le bouton à son état initial rapidement
+                setTimeout(() => {
+                    logButton.disabled = false;
+                    buttonText.textContent = 'Nicotine';
+                }, 300);
+            }
         });
     </script>
 </body>
