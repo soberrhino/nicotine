@@ -52,38 +52,38 @@
         </button>
     </div>
 
-    <!-- Utilisation de modules ES pour Firebase -->
+    <!-- Conteneur pour les erreurs (remplace l'alert) -->
+    <div id="errorToast" class="fixed bottom-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-50">
+        <span id="errorMessage">Une erreur est survenue.</span>
+    </div>
+
     <script type="module">
-        // 1. Importation des modules Firebase
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
-        import { 
-            getFirestore, 
-            collection, 
-            addDoc, 
-            query, 
-            where, 
-            onSnapshot, 
-            serverTimestamp, 
-            orderBy 
-        } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // AJOUT DES IMPORTS: doc, setDoc, increment
+        import { getFirestore, collection, addDoc, doc, setDoc, increment, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION FIREBASE ---
-        // TODO: Remplacez cet objet par la configuration de votre projet Firebase
-        
-        const firebaseConfig = {
-          apiKey: "AIzaSyCrt95VbVp7LakUndL8GClmFwqkvqwrJOc",
-          authDomain: "nicotine-89e91.firebaseapp.com",
-          projectId: "nicotine-89e91",
-          storageBucket: "nicotine-89e91.firebasestorage.app",
-          messagingSenderId: "848128559093",
-          appId: "1:848128559093:web:6b64805437a7f4b7f742bc"
-        };
+        // Remplacez cet objet par la configuration de votre projet Firebase
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+              apiKey: "AIzaSyCrt95VbVp7LakUndL8GClmFwqkvqwrJOc",
+              authDomain: "nicotine-89e91.firebaseapp.com",
+              projectId: "nicotine-89e91",
+              storageBucket: "nicotine-89e91.firebasestorage.app",
+              messagingSenderId: "848128559093",
+              appId: "1:848128559093:web:6b64805437a7f4b7f742bc"
+            };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nicotine-tracker';
 
         // Initialisation
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
+        let userId = null;
 
-        // --- ÉLÉMENTS DU DOM ---
         const logButton = document.getElementById('logButton');
         const buttonText = document.getElementById('buttonText');
         const infoDisplay = document.getElementById('infoDisplay');
@@ -92,6 +92,8 @@
         const lastClickText = document.getElementById('lastClickText');
         const averageText = document.getElementById('averageText');
         const nextDoseText = document.getElementById('nextDoseText');
+        const errorToast = document.getElementById('errorToast');
+        const errorMessage = document.getElementById('errorMessage');
 
         // --- VARIABLES D'ÉTAT ---
         let currentDailyCount = 0;
@@ -99,7 +101,21 @@
         let currentAvgDurationSeconds = 0;
         let updateInterval;
 
-        // --- FONCTIONS D'AFFICHAGE ---
+        function showError(msg) {
+            errorMessage.textContent = msg;
+            errorToast.classList.remove('opacity-0');
+            setTimeout(() => errorToast.classList.add('opacity-0'), 5000);
+        }
+
+        // Formater la date en YYYY-MM-DD pour créer l'ID du document du jour
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
         function updateDisplayStatus() {
             if (currentDailyCount === 0 || !currentLastClickDate) {
                 dailyCountText.textContent = '0';
@@ -111,7 +127,6 @@
                 return;
             }
 
-            // Mise à jour des textes
             dailyCountText.textContent = currentDailyCount;
             lastClickText.textContent = currentLastClickDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
             
@@ -120,7 +135,6 @@
                 const nextDoseDate = new Date(currentLastClickDate.getTime() + currentAvgDurationSeconds * 1000);
                 nextDoseText.textContent = nextDoseDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
                 
-                // Mise à jour des couleurs et de l'emoji (Timer)
                 const elapsedSeconds = (Date.now() - currentLastClickDate.getTime()) / 1000;
                 if (elapsedSeconds > currentAvgDurationSeconds) {
                     infoDisplay.className = "text-center mb-8 p-4 rounded-lg w-full transition-colors duration-500 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300";
@@ -135,23 +149,27 @@
             }
         }
 
-        // --- ÉCOUTE DES DONNÉES EN TEMPS RÉEL ---
         function listenToTodayData() {
+            if (!userId) return;
+
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
 
-            // Requête : Récupérer tous les clics d'aujourd'hui, triés par heure
-            const q = query(
-                collection(db, "logs"), 
-                where("timestamp", ">=", startOfDay),
-                orderBy("timestamp", "asc")
-            );
+            const logsRef = collection(db, 'artifacts', appId, 'users', userId, 'logs');
 
-            // onSnapshot permet d'écouter les changements en temps réel
-            onSnapshot(q, (snapshot) => {
-                const logs = snapshot.docs
-                    .map(doc => doc.data().timestamp?.toDate())
-                    .filter(date => date != null); // Filtre les dates non résolues (pendant l'écriture locale)
+            onSnapshot(logsRef, (snapshot) => {
+                const logs = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.timestamp) {
+                        const date = data.timestamp.toDate();
+                        if (date >= startOfDay) {
+                            logs.push(date);
+                        }
+                    }
+                });
+
+                logs.sort((a, b) => a.getTime() - b.getTime());
 
                 currentDailyCount = logs.length;
 
@@ -159,7 +177,6 @@
                     currentLastClickDate = logs[logs.length - 1];
                     const firstClickDate = logs[0];
 
-                    // Calcul de la moyenne
                     if (currentDailyCount > 1) {
                         const totalSeconds = (currentLastClickDate.getTime() - firstClickDate.getTime()) / 1000;
                         currentAvgDurationSeconds = totalSeconds / (currentDailyCount - 1);
@@ -171,33 +188,66 @@
                     currentAvgDurationSeconds = 0;
                 }
 
-                // Rafraîchissement de l'UI
                 updateDisplayStatus();
                 clearInterval(updateInterval);
                 updateInterval = setInterval(updateDisplayStatus, 1000);
+
+            }, (error) => {
+                console.error("Erreur de synchronisation:", error);
+                showError("Erreur de synchronisation des données.");
             });
         }
 
-        // --- INITIALISATION ---
+        async function initializeAppAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser.uid;
+                listenToTodayData();
+            } catch (error) {
+                console.error("Erreur d'authentification :", error);
+                showError("Impossible de se connecter à la base.");
+            }
+        }
+
         window.addEventListener('load', () => {
-            listenToTodayData();
+            initializeAppAuth();
         });
 
-        // --- GESTION DU CLIC ---
         logButton.addEventListener('click', async () => {
+            if (!userId) {
+                showError("Non connecté.");
+                return;
+            }
+
             logButton.disabled = true;
             buttonText.textContent = '...';
             
             try {
-                // Ajout du document dans la collection "logs"
-                await addDoc(collection(db, "logs"), {
-                    timestamp: serverTimestamp() // Utilise l'heure du serveur Firebase
+                // 1. Sauvegarde de la prise individuelle (historique complet)
+                const logsRef = collection(db, 'artifacts', appId, 'users', userId, 'logs');
+                await addDoc(logsRef, {
+                    timestamp: serverTimestamp()
                 });
+
+                // 2. NOUVEAU : Mise à jour du compteur quotidien
+                const todayString = getTodayDateString(); // ex: "2026-08-05"
+                const dailyStatRef = doc(db, 'artifacts', appId, 'users', userId, 'daily_stats', todayString);
+                
+                // { merge: true } crée le document s'il n'existe pas, ou le met à jour s'il existe
+                await setDoc(dailyStatRef, {
+                    date: todayString, // Utile pour retrouver la date facilement plus tard
+                    total_count: increment(1), // Ajoute +1 à chaque clic !
+                    last_updated: serverTimestamp()
+                }, { merge: true });
+
             } catch (error) {
                 console.error("Erreur lors de l'enregistrement :", error);
-                alert("Erreur lors de l'enregistrement de la prise.");
+                showError("Erreur lors de l'enregistrement. Vérifiez la console.");
             } finally {
-                // Remet le bouton à son état initial rapidement
                 setTimeout(() => {
                     logButton.disabled = false;
                     buttonText.textContent = 'Nicotine';
