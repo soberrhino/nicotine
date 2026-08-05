@@ -50,6 +50,11 @@
         <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-all duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
             <span id="buttonText" class="text-2xl font-semibold">Nicotine</span>
         </button>
+
+        <!-- NOUVEAU : Bouton de téléchargement CSV -->
+        <button id="downloadCsvBtn" class="mt-8 text-sm font-medium text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline transition-colors cursor-pointer">
+            Télécharger l'historique (CSV)
+        </button>
     </div>
 
     <!-- Conteneur pour les erreurs (remplace l'alert) -->
@@ -60,23 +65,22 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // AJOUT DES IMPORTS: doc, setDoc, increment
-        import { getFirestore, collection, addDoc, doc, setDoc, increment, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // AJOUT DES IMPORTS: ajout de getDocs
+        import { getFirestore, collection, addDoc, doc, setDoc, increment, onSnapshot, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION FIREBASE ---
-        // Remplacez cet objet par la configuration de votre projet Firebase
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : {
-              apiKey: "AIzaSyCrt95VbVp7LakUndL8GClmFwqkvqwrJOc",
-              authDomain: "nicotine-89e91.firebaseapp.com",
-              projectId: "nicotine-89e91",
-              storageBucket: "nicotine-89e91.firebasestorage.app",
-              messagingSenderId: "848128559093",
-              appId: "1:848128559093:web:6b64805437a7f4b7f742bc"
-            };
+        // ⚠️ COPIEZ-COLLEZ VOS VRAIES CLÉS DEPUIS LA CONSOLE FIREBASE ICI :
+        // (La partie "typeof __firebase_config" permet juste de faire fonctionner l'aperçu sur cette page)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyCrt95VbVp7LakUndL8GClmFwqkvqwrJOc",
+            authDomain: "nicotine-89e91.firebaseapp.com",
+            projectId: "nicotine-89e91",
+            storageBucket: "nicotine-89e91.firebasestorage.app",
+            messagingSenderId: "848128559093",
+            appId: "1:848128559093:web:6b64805437a7f4b7f742bc"
+        };
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nicotine-tracker';
+        const appId = 'nicotine-tracker';
 
         // Initialisation
         const app = initializeApp(firebaseConfig);
@@ -94,6 +98,7 @@
         const nextDoseText = document.getElementById('nextDoseText');
         const errorToast = document.getElementById('errorToast');
         const errorMessage = document.getElementById('errorMessage');
+        const downloadCsvBtn = document.getElementById('downloadCsvBtn');
 
         // --- VARIABLES D'ÉTAT ---
         let currentDailyCount = 0;
@@ -252,6 +257,69 @@
                     logButton.disabled = false;
                     buttonText.textContent = 'Nicotine';
                 }, 300);
+            }
+        });
+
+        // --- NOUVEAU : GESTION DU TÉLÉCHARGEMENT CSV ---
+        downloadCsvBtn.addEventListener('click', async () => {
+            if (!userId) {
+                showError("Vous n'êtes pas connecté aux serveurs.");
+                return;
+            }
+
+            try {
+                // Changer le texte du bouton pendant le chargement
+                const originalText = downloadCsvBtn.textContent;
+                downloadCsvBtn.textContent = "Préparation du fichier...";
+                downloadCsvBtn.disabled = true;
+
+                // 1. Récupérer toutes les statistiques quotidiennes de l'utilisateur
+                const dailyStatsRef = collection(db, 'artifacts', appId, 'users', userId, 'daily_stats');
+                const querySnapshot = await getDocs(dailyStatsRef);
+
+                let dataRows = [];
+
+                // 2. Extraire les données
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.date && data.total_count) {
+                        dataRows.push({ date: data.date, count: data.total_count });
+                    }
+                });
+
+                // 3. Trier par date de la plus ancienne à la plus récente
+                dataRows.sort((a, b) => a.date.localeCompare(b.date));
+
+                // 4. Construire la chaîne de caractères CSV
+                let csvContent = "Date,Nombre de prises\n"; // En-têtes du fichier
+                dataRows.forEach(row => {
+                    csvContent += `${row.date},${row.count}\n`;
+                });
+
+                // 5. Créer un fichier virtuel (Blob) et lancer le téléchargement
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.setAttribute("href", url);
+                
+                // Nommer le fichier avec la date du jour
+                const today = new Date().toISOString().split('T')[0];
+                link.setAttribute("download", `nicotine_historique_${today}.csv`);
+                
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                // Remettre le texte initial
+                downloadCsvBtn.textContent = originalText;
+                downloadCsvBtn.disabled = false;
+
+            } catch (error) {
+                console.error("Erreur lors de la génération du CSV :", error);
+                showError("Erreur lors de la création du fichier CSV.");
+                downloadCsvBtn.disabled = false;
+                downloadCsvBtn.textContent = "Télécharger l'historique (CSV)";
             }
         });
     </script>
