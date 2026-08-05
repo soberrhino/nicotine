@@ -213,8 +213,10 @@
                 userId = auth.currentUser.uid;
                 listenToTodayData();
             } catch (error) {
-                console.error("Erreur d'authentification :", error);
-                showError("Impossible de se connecter à la base.");
+                console.error("Erreur d'authentification complète :", error);
+                // On affiche le code d'erreur spécifique renvoyé par Firebase
+                let msg = error.code ? error.code : "Impossible de se connecter.";
+                showError("Erreur : " + msg);
             }
         }
 
