@@ -46,32 +46,29 @@
             </div>
         </div>
 
-        <!-- Bouton d'action -->
+        <!-- Bouton d'action principal -->
         <button id="logButton" class="w-48 h-48 bg-blue-600 text-white rounded-full shadow-lg transform transition-all duration-200 ease-in-out hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 flex items-center justify-center">
             <span id="buttonText" class="text-2xl font-semibold">Nicotine</span>
         </button>
 
-        <!-- NOUVEAU : Bouton de téléchargement CSV -->
+        <!-- Bouton de téléchargement CSV -->
         <button id="downloadCsvBtn" class="mt-8 text-sm font-medium text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 underline transition-colors cursor-pointer">
             Télécharger l'historique (CSV)
         </button>
     </div>
 
-    <!-- Conteneur pour les erreurs (remplace l'alert) -->
+    <!-- Conteneur pour les erreurs (remplace l'alert bloquant) -->
     <div id="errorToast" class="fixed bottom-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-50">
         <span id="errorMessage">Une erreur est survenue.</span>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // AJOUT DES IMPORTS: ajout de getDocs
         import { getFirestore, collection, addDoc, doc, setDoc, increment, onSnapshot, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION FIREBASE ---
         // ⚠️ COPIEZ-COLLEZ VOS VRAIES CLÉS DEPUIS LA CONSOLE FIREBASE ICI :
-        // (La partie "typeof __firebase_config" permet juste de faire fonctionner l'aperçu sur cette page)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+        const firebaseConfig = {
             apiKey: "AIzaSyCrt95VbVp7LakUndL8GClmFwqkvqwrJOc",
             authDomain: "nicotine-89e91.firebaseapp.com",
             projectId: "nicotine-89e91",
@@ -82,11 +79,12 @@
 
         const appId = 'nicotine-tracker';
 
-        // Initialisation
+        // Initialisation de Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const auth = getAuth(app);
-        let userId = null;
+        
+        // 💡 L'ASTUCE : On utilise un ID fixe (en dur) pour synchroniser tous vos appareils sans mot de passe
+        const userId = "mon_profil_personnel"; 
 
         const logButton = document.getElementById('logButton');
         const buttonText = document.getElementById('buttonText');
@@ -106,13 +104,14 @@
         let currentAvgDurationSeconds = 0;
         let updateInterval;
 
+        // Fonction pour afficher une erreur discrète en bas de l'écran
         function showError(msg) {
             errorMessage.textContent = msg;
             errorToast.classList.remove('opacity-0');
             setTimeout(() => errorToast.classList.add('opacity-0'), 5000);
         }
 
-        // Formater la date en YYYY-MM-DD pour créer l'ID du document du jour
+        // Formater la date en YYYY-MM-DD pour les statistiques quotidiennes
         function getTodayDateString() {
             const today = new Date();
             const year = today.getFullYear();
@@ -121,6 +120,7 @@
             return `${year}-${month}-${day}`;
         }
 
+        // Mise à jour de l'interface utilisateur avec les dernières données
         function updateDisplayStatus() {
             if (currentDailyCount === 0 || !currentLastClickDate) {
                 dailyCountText.textContent = '0';
@@ -155,11 +155,10 @@
         }
 
         function listenToTodayData() {
-            if (!userId) return;
-
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
 
+            // On pointe vers le dossier unique commun à tous vos appareils
             const logsRef = collection(db, 'artifacts', appId, 'users', userId, 'logs');
 
             onSnapshot(logsRef, (snapshot) => {
@@ -199,61 +198,40 @@
 
             }, (error) => {
                 console.error("Erreur de synchronisation:", error);
-                showError("Erreur de synchronisation des données.");
+                showError("Erreur de connexion. Avez-vous mis vos clés API ?");
             });
         }
 
-        async function initializeAppAuth() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined') {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-                userId = auth.currentUser.uid;
-                listenToTodayData();
-            } catch (error) {
-                console.error("Erreur d'authentification complète :", error);
-                // On affiche le code d'erreur spécifique renvoyé par Firebase
-                let msg = error.code ? error.code : "Impossible de se connecter.";
-                showError("Erreur : " + msg);
-            }
-        }
-
+        // Démarrage immédiat de l'écoute des données au chargement de la page
         window.addEventListener('load', () => {
-            initializeAppAuth();
+             listenToTodayData();
         });
 
+        // Action principale : enregistrer une prise
         logButton.addEventListener('click', async () => {
-            if (!userId) {
-                showError("Non connecté.");
-                return;
-            }
-
             logButton.disabled = true;
             buttonText.textContent = '...';
             
             try {
-                // 1. Sauvegarde de la prise individuelle (historique complet)
+                // 1. Sauvegarde de la prise individuelle pour calculer les moyennes
                 const logsRef = collection(db, 'artifacts', appId, 'users', userId, 'logs');
                 await addDoc(logsRef, {
                     timestamp: serverTimestamp()
                 });
 
-                // 2. NOUVEAU : Mise à jour du compteur quotidien
-                const todayString = getTodayDateString(); // ex: "2026-08-05"
+                // 2. Mise à jour incrémentale du compteur quotidien (parfait pour l'export CSV)
+                const todayString = getTodayDateString();
                 const dailyStatRef = doc(db, 'artifacts', appId, 'users', userId, 'daily_stats', todayString);
                 
-                // { merge: true } crée le document s'il n'existe pas, ou le met à jour s'il existe
                 await setDoc(dailyStatRef, {
-                    date: todayString, // Utile pour retrouver la date facilement plus tard
-                    total_count: increment(1), // Ajoute +1 à chaque clic !
+                    date: todayString,
+                    total_count: increment(1),
                     last_updated: serverTimestamp()
                 }, { merge: true });
 
             } catch (error) {
                 console.error("Erreur lors de l'enregistrement :", error);
-                showError("Erreur lors de l'enregistrement. Vérifiez la console.");
+                showError("Erreur lors de l'enregistrement.");
             } finally {
                 setTimeout(() => {
                     logButton.disabled = false;
@@ -262,26 +240,17 @@
             }
         });
 
-        // --- NOUVEAU : GESTION DU TÉLÉCHARGEMENT CSV ---
+        // Action secondaire : télécharger l'historique CSV
         downloadCsvBtn.addEventListener('click', async () => {
-            if (!userId) {
-                showError("Vous n'êtes pas connecté aux serveurs.");
-                return;
-            }
-
             try {
-                // Changer le texte du bouton pendant le chargement
                 const originalText = downloadCsvBtn.textContent;
                 downloadCsvBtn.textContent = "Préparation du fichier...";
                 downloadCsvBtn.disabled = true;
 
-                // 1. Récupérer toutes les statistiques quotidiennes de l'utilisateur
                 const dailyStatsRef = collection(db, 'artifacts', appId, 'users', userId, 'daily_stats');
                 const querySnapshot = await getDocs(dailyStatsRef);
 
                 let dataRows = [];
-
-                // 2. Extraire les données
                 querySnapshot.forEach((doc) => {
                     const data = doc.data();
                     if (data.date && data.total_count) {
@@ -289,22 +258,20 @@
                     }
                 });
 
-                // 3. Trier par date de la plus ancienne à la plus récente
+                // Tri chronologique des dates
                 dataRows.sort((a, b) => a.date.localeCompare(b.date));
 
-                // 4. Construire la chaîne de caractères CSV
-                let csvContent = "Date,Nombre de prises\n"; // En-têtes du fichier
+                let csvContent = "Date,Nombre de prises\n";
                 dataRows.forEach(row => {
                     csvContent += `${row.date},${row.count}\n`;
                 });
 
-                // 5. Créer un fichier virtuel (Blob) et lancer le téléchargement
+                // Création et téléchargement du fichier CSV
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.setAttribute("href", url);
                 
-                // Nommer le fichier avec la date du jour
                 const today = new Date().toISOString().split('T')[0];
                 link.setAttribute("download", `nicotine_historique_${today}.csv`);
                 
@@ -313,12 +280,11 @@
                 link.click();
                 document.body.removeChild(link);
 
-                // Remettre le texte initial
                 downloadCsvBtn.textContent = originalText;
                 downloadCsvBtn.disabled = false;
 
             } catch (error) {
-                console.error("Erreur lors de la génération du CSV :", error);
+                console.error("Erreur CSV :", error);
                 showError("Erreur lors de la création du fichier CSV.");
                 downloadCsvBtn.disabled = false;
                 downloadCsvBtn.textContent = "Télécharger l'historique (CSV)";
